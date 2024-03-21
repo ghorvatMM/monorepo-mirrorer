@@ -1,0 +1,82 @@
+name: 'Mirror to Monorepo'
+description: 'Action that mirrors a project to a monorepo within a subfolder.'
+inputs:
+  name:
+    description: 'Name of the repo to be cloned into monorepo'
+    required: true
+  repository:
+    description: 'Destination repo'
+    required: true
+  token:
+    description: 'Personal access token (PAT) used to fetch the repository.'
+    default: ${{ github.token }}
+  ssh-key:
+    description: 'SSH key used to fetch the repository.'
+  ignore:
+    description: 'Files to ignore for mirroring'
+  gituser:
+    description: 'Git username for action'
+    default:  'GitHub Mirrorer bot'
+  gitemail:
+    description: 'Git email for action'
+    default: 'actions@github.com'
+
+runs:
+  using: "composite"
+  steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          path: mirror
+      - name: Remove history for source
+        shell: bash
+        run: |
+            rm -rf mirror/.git  
+
+      - name: Checkout destination repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{inputs.repository}}
+          token: ${{ inputs.token }}
+          ssh-key: ${{ inputs.ssh-key }}
+          path: reflection
+
+      - name: Create subfolder
+        shell: bash
+        run: |
+          rm -rf reflection/${{ inputs.name }}            
+          mkdir -p reflection/${{ inputs.name }}     
+
+      - name: Initialize git user
+        shell: bash
+        run: |
+          cd reflection
+          git config user.name "${{ inputs.gituser }}"
+          git config user.email "${{ inputs.gitemail }}"              
+
+      - name: Copy files to subfolder
+        shell: bash
+        run: rsync -av mirror/. reflection/${{inputs.name}}/
+
+      - name: Add files to git
+        shell: bash
+        run: |
+          cd reflection
+          IGNORED_FILES=$(echo "${{inputs.ignore}}" |  awk '{ printf ":!${{inputs.name}}/%s ", $1 }')
+          git add ${{inputs.name}}/*
+          git add --all -- $IGNORED_FILES
+          if [[ -n $(git ls-files -d --full-name) ]]; then
+            git ls-files -d --full-name | xargs git rm --quiet
+          fi
+
+      - name: Commit changes
+        shell: bash
+        run: |
+          cd reflection
+          git commit -m "mirror $(date +%Y-%m-%d)"    
+
+      - name: Push to remote repository
+        shell: bash
+        run: |
+          cd reflection
+          git push
